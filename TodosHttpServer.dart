@@ -3,38 +3,51 @@
 #import("vendor/DartRedisClient/RedisClient.dart");
 
 Map<String,String> pathMatcher(String matchPath, String withPath){
-  if (matchPath == withPath) return {};
+  Map params = {};
+  if (matchPath == withPath) return params;
   List<String> matchComponents = matchPath.split("/");
   List<String> pathComponents = withPath.split("/");
-  if (matchPath.length == pathComponents.length){
+  print("$matchComponents : $pathComponents");
+  if (matchComponents.length == pathComponents.length){
     for (int i=0; i<matchComponents.length; i++){
-
+      String match = matchComponents[i];
+      String path = pathComponents[i];
+      if (match == path) continue;
+      if (match.startsWith(":")) {
+        params[match.substring(1)] = path;
+        continue;
+      }
+      return null;
     }
+    return params;
   }
   return null;
 }
 
 void main(){
+//  print(pathMatcher("/tests", "/tests"));
+//  print(pathMatcher("/tests/:id", "/tests/1"));
+//  print(pathMatcher("/tests/:id", "/tests"));
+//  print(pathMatcher("/tests/:id", "/rests"));
+  Map<String, Function> handlers = {
+    "/todos" : (HttpRequest req, HttpResponse res){
+      res.headers.set(HttpHeaders.CONTENT_TYPE, "text/plain");
+      res.outputStream.writeString("/todos == ${req.path}");
+      res.outputStream.close();
+    },
+    "/todos/:id" : (HttpRequest req, HttpResponse res){
+      res.headers.set(HttpHeaders.CONTENT_TYPE, "text/plain");
+      res.outputStream.writeString("/todos == ${req.path}");
+      res.outputStream.close();
+    }
+  };
+
   HttpServer server = new HttpServer();
-//  server.addRequestHandler((HttpRequest req) => (req.path == "/time"), wsHandler.onRequest);
   handlers.forEach((path, handler) =>
-      server.addRequestHandler((HttpRequest req) => new RegExp(path, false, true).hasMatch(req.path), handler));
+      server.addRequestHandler((HttpRequest req) => pathMatcher(path, req.path) != null, handler));
   server.addRequestHandler((_) => true, fileServer);
   server.listen("127.0.0.1", 8080);
 }
-
-Map<String, Function> handlers = {
-  "/todos" : (HttpRequest req, HttpResponse res){
-    res.headers.set(HttpHeaders.CONTENT_TYPE, contentType("txt"));
-    res.outputStream.writeString("/todos == ${req.path}");
-    res.outputStream.close();
-  },
-  "/todos/:id" : (HttpRequest req, HttpResponse res){
-    res.headers.set(HttpHeaders.CONTENT_TYPE, contentType("txt"));
-    res.outputStream.writeString("/todos == ${req.path}");
-    res.outputStream.close();
-  }
-};
 
 Map<String, String> contentTypes = const {
   "txt" : "text/plain",
@@ -53,13 +66,13 @@ void fileServer(HttpRequest req, HttpResponse res){
   file.exists().then((bool exists) {
     if (exists) {
       file.readAsText().then((String text) {
-        resp.headers.set(HttpHeaders.CONTENT_TYPE, contentType(file));
-        resp.outputStream.writeString(text);
-        resp.outputStream.close();
+        res.headers.set(HttpHeaders.CONTENT_TYPE, contentType(file));
+        res.outputStream.writeString(text);
+        res.outputStream.close();
       });
     } else {
-      resp.statusCode = HttpStatus.NOT_FOUND;
-      resp.outputStream.close();
+      res.statusCode = HttpStatus.NOT_FOUND;
+      res.outputStream.close();
     }
   });
 }
