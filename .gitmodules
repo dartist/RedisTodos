@@ -1,6 +1,6 @@
-[submodule "vendor/DartRedisClient"]
-	path = vendor/DartRedisClient
-	url = git@github.com:mythz/DartRedisTodos.git
 [submodule "vendor/DartJsonClient"]
 	path = vendor/DartJsonClient
 	url = git@github.com:mythz/DartJsonClient.git
+[submodule "vendor/DartRedisClient"]
+	path = vendor/DartRedisClient
+	url = git@github.com:mythz/DartRedisClient.git
