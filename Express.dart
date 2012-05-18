@@ -3,10 +3,16 @@
 #import("dart:json");
 #import("vendor/DartRedisClient/Mixin.dart");
 
+/*
+ * Register encapsulated Modules like StaticFileHandler
+ */
 interface Module {
   void register(HttpServer server);
 }
 
+/* A high-level object encapsulating both HttpRequest and HttpResponse objects
+ * with useful overloads for each for common operations and usage patterns.
+ */
 interface HttpContext default _HttpContext {
   HttpContext(HttpRequest this.req, HttpResponse this.res, [String this.routePath]);
 
@@ -43,8 +49,10 @@ interface HttpContext default _HttpContext {
   void notFound([String statusReason, Object value, String contentType]);
 }
 
+// The signature your Request Handlers should implement
 typedef void RequestHandler (HttpContext ctx);
 
+// The core Express app where all modules are request handlers are registered on
 class Express {
   Map<String, LinkedHashMap<String,RequestHandler>> _verbPaths;
   List<String> _verbs = const ["GET","POST","PUT","DELETE","PATCH","HEAD","OPTIONS","ANY"];
@@ -57,6 +65,7 @@ class Express {
     _modules = new List<Module>();
   }
 
+  // Use this to add a module to your project
   void use(Module module) => _modules.add(module);
 
   get(handlerMapping, RequestHandler handler) =>
@@ -80,6 +89,7 @@ class Express {
   options(handlerMapping, RequestHandler handler) =>
       _verbPaths["OPTIONS"][handlerMapping] = handler;
 
+  // Register a request handler that handles any verb
   any(handlerMapping, RequestHandler handler) =>
       _verbPaths["ANY"][handlerMapping] = handler;
 
@@ -88,14 +98,15 @@ class Express {
 
   bool handlesRequest(HttpRequest req) {
     bool foundMatch = _verbPaths[req.method] != null &&
-    ( _verbPaths[req.method].getKeys().some((x) => pathMatches(x, req.path))
-      || _verbPaths["ANY"].getKeys().some((x) => pathMatches(x, req.path)) );
+    ( _verbPaths[req.method].getKeys().some((x) => routeMatches(x, req.path))
+      || _verbPaths["ANY"].getKeys().some((x) => routeMatches(x, req.path)) );
     if (foundMatch) print("match found for ${req.method} ${req.path}");
     return foundMatch;
   }
 
+  // Return true if this HttpRequest is a match for this verb and route
   bool isMatch(String verb, String route, HttpRequest req) =>
-      (req.method == verb || verb == "ANY") && pathMatches(route, req.path);
+      (req.method == verb || verb == "ANY") && routeMatches(route, req.path);
 
   void listen([String host="127.0.0.1", int port=80]){
     server = new HttpServer();
@@ -265,10 +276,10 @@ class ContentTypes {
   static bool isFormUrlEncoded(String contentType) => matches(contentType, FORM_URL_ENCODED);
   static bool isMultipartFormData(String contentType) => matches(contentType, MULTIPART_FORMDATA);
 
-  static Map<String, String> _typesMap;
-  static Map<String, String> get typesMap() {
-    if (_typesMap == null) {
-      _typesMap = {
+  static Map<String, String> _extensionsMap;
+  static Map<String, String> get extensionsMap() {
+    if (_extensionsMap == null) {
+      _extensionsMap = {
          "txt" : ContentTypes.TEXT,
          "json": ContentTypes.JSON,
          "htm" : ContentTypes.HTML,
@@ -282,7 +293,7 @@ class ContentTypes {
          "jpeg": "image/jpeg",
       };
     }
-    return _typesMap;
+    return _extensionsMap;
   }
 
   static List<String> _binaryContentTypes;
@@ -295,7 +306,7 @@ class ContentTypes {
 
   static String getContentType(File file) {
     String ext = file.name.split('.').last();
-    return typesMap[ext];
+    return extensionsMap[ext];
   }
 
   static bool isBinary(String contentType) => binaryContentTypes.indexOf(contentType) >= 0;
@@ -331,12 +342,9 @@ class StaticFileHandler implements Module {
       }
     });
   }
-
 }
 
-Express express() => new Express();
-
-bool pathMatches(String matchPath, String withPath) => pathMatcher(matchPath, withPath) != null;
+bool routeMatches(String route, String matchesPath) => pathMatcher(route, matchesPath) != null;
 
 //  print(pathMatcher("/tests", "/tests"));
 //  print(pathMatcher("/tests/:id", "/tests/1"));
@@ -346,18 +354,18 @@ bool pathMatches(String matchPath, String withPath) => pathMatcher(matchPath, wi
 //  print(pathMatcher("/todos", "/todos.js"));
 //  print(pathMatcher("/users/:id/todos/:todoId", "/users/1/todos/2"));
 
-Map<String,String> pathMatcher(String matchPath, String withPath){
+Map<String,String> pathMatcher(String route, String matchesPath){
   Map params = {};
-  if (matchPath == withPath) return params;
-  List<String> matchComponents = matchPath.split("/");
-  List<String> pathComponents = withPath.split("/");
-  if (matchComponents.length == pathComponents.length){
-    for (int i=0; i<matchComponents.length; i++){
-      String match = matchComponents[i];
+  if (route == matchesPath) return params;
+  List<String> pathComponents = matchesPath.split("/");
+  List<String> routeComponents = route.split("/");
+  if (pathComponents.length == routeComponents.length){
+    for (int i=0; i<pathComponents.length; i++){
       String path = pathComponents[i];
-      if (match == path) continue;
-      if (match.startsWith(":")) {
-        params[match.substring(1)] = path;
+      String route = routeComponents[i];
+      if (path == route) continue;
+      if (route.startsWith(":")) {
+        params[route.substring(1)] = path;
         continue;
       }
       return null;
