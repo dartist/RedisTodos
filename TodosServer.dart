@@ -13,30 +13,27 @@ void main(){
   app.use(new StaticFileHandler());
 
   app.get("/todos", (HttpContext ctx){
-    client.keys("todo:*").then((keys){
-      client.mget(keys).then((values) {
-        ctx.send(values, asFormat:"json");
-      });
-    });
+    client.keys("todo:*").then((keys) =>
+      client.mget(keys).then(ctx.sendJson)
+    );
   });
 
   app.get("/todos/:id", (HttpContext ctx){
     var id = ctx.param("id");
-    client.get("todo:$id}").then((todo){
-      if (todo != null)
-        ctx.send(todo, asFormat:"json");
-      else
-        ctx.notFound("todo $id does not exist");
-    });
+    client.get("todo:$id}").then((todo) =>
+      todo != null ?
+        ctx.sendJson(todo) :
+        ctx.notFound("todo $id does not exist")
+    );
   });
 
   app.post("/todos", (HttpContext ctx){
     ctx.readAsJson().then((x){
-      var todo = $(x).defaults({"content":null,"done":false,"order":0});
       client.incr("ids:todo").then((newId){
+        var todo = $(x).defaults({"content":null,"done":false,"order":0});
         todo["id"] = newId;
         client.set("todo:$newId", todo);
-        ctx.send(todo, asFormat:"json");
+        ctx.sendJson(todo);
       });
     });
   });
@@ -45,13 +42,13 @@ void main(){
     var id = ctx.param("id");
     ctx.readAsJson().then((todo){
       client.set("todo:$id", todo);
-      ctx.send(todo, asFormat:"json");
+      ctx.sendJson(todo);
     });
   });
 
   app.delete("/todos/:id", (HttpContext ctx){
     client.del("todo:${ctx.param('id')}");
-    ctx.end();
+    ctx.send();
   });
 
   print("listening on 8000...");

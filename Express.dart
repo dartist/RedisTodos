@@ -5,7 +5,42 @@
 
 interface Module {
   void register(HttpServer server);
-  void execute(HttpRequest req, HttpResponse res);
+}
+
+interface HttpContext default _HttpContext {
+  HttpContext(HttpRequest this.req, HttpResponse this.res, [String this.routePath]);
+
+  //Context
+  String routePath;
+  HttpRequest  req;
+  HttpResponse res;
+  Map<String,String> params;
+  String param(String name);
+
+  //Read
+  String get contentType();
+  Future<List<int>> readAsBytes();
+  Future<String> readAsText([Encoding encoding]);
+  Future<Object> readAsJson([Encoding encoding]);
+  Future<Object> readAsObject([Encoding encoding]);
+
+  //Write
+  String get responseContentType();
+  void set responseContentType(String value);
+  HttpContext head([int httpStatus, String statusReason, String contentType, Map<String,String> headers]);
+
+  HttpContext write(Object value, [String contentType]);
+  HttpContext writeText(String text);
+  HttpContext writeBytes(List<int> bytes);
+
+  void send([Object value, String contentType, int httpStatus, String statusReason]);
+  void sendJson(Object value, [int httpStatus, String statusReason]);
+  void sendHtml(Object value, [int httpStatus, String statusReason]);
+  void sendText(Object value, [String contentType, int httpStatus, String statusReason]);
+  void sendBytes(List<int> bytes, [String contentType, int httpStatus, String statusReason]);
+
+  //Custom Status responses
+  void notFound([String statusReason, Object value, String contentType]);
 }
 
 typedef void RequestHandler (HttpContext ctx);
@@ -58,7 +93,7 @@ class Express {
     if (foundMatch) print("match found for ${req.method} ${req.path}");
     return foundMatch;
   }
-  
+
   bool isMatch(String verb, String route, HttpRequest req) =>
       (req.method == verb || verb == "ANY") && pathMatches(route, req.path);
 
@@ -67,7 +102,7 @@ class Express {
     _verbPaths.forEach((verb, handlers) =>
         handlers.forEach((route, handler) =>
             server.addRequestHandler((HttpRequest req) => isMatch(verb, route, req),
-              (HttpRequest req, HttpResponse res) { new HttpContext(route, handler).execute(req, res); }
+              (HttpRequest req, HttpResponse res) { handler(new HttpContext(req, res, route)); }
             )
         )
     );
@@ -76,7 +111,7 @@ class Express {
   }
 }
 
-class HttpContext {
+class _HttpContext implements HttpContext {
   String routePath;
   String reqPath;
   RequestHandler handler;
@@ -85,14 +120,7 @@ class HttpContext {
   Map<String,String> params;
   String _format;
 
-  HttpContext(this.routePath, RequestHandler this.handler);
-
-  execute(HttpRequest request, HttpResponse response){
-    this.req=request;
-    this.res=response;
-    print("handling ${req.path}");
-    handler(this);
-  }
+  _HttpContext(HttpRequest this.req, HttpResponse this.res, [String this.routePath]);
 
   String param(String name) {
     if (params == null){
@@ -102,7 +130,7 @@ class HttpContext {
   }
 
   Future<List<int>> readAsBytes() {
-    Completer<List<int>> completer = new Completer<List<int>>();    
+    Completer<List<int>> completer = new Completer<List<int>>();
     var stream = req.inputStream;
     var chunks = new _BufferList();
     stream.onClosed = () {
@@ -124,104 +152,182 @@ class HttpContext {
 //      return decoder.decoded;
     });
   }
- 
-  Future<Object> readAsJson([Encoding encoding = Encoding.UTF_8]) => 
+
+  Future<Object> readAsJson([Encoding encoding = Encoding.UTF_8]) =>
       readAsText(encoding).transform((json) => JSON.parse(json));
 
-  set format(String value) {
-    _format = value;
-    String _contentType = contentTypes[value];
-    if (_contentType != null)
-      contentType = _contentType;
+  Future<Object> readAsObject([Encoding encoding = Encoding.UTF_8]) =>
+      readAsText(encoding).transform((text) => ContentTypes.isJson(contentType)
+           ? $(JSON.parse(text)).defaults(req.queryParameters)
+           : text
+      );
+
+  String _contentTypeOnly;
+  String _contentType;
+  String get contentType() => _contentType != null ?
+      _contentType
+    : req.headers[HttpHeaders.CONTENT_TYPE] != null ?
+      req.headers[HttpHeaders.CONTENT_TYPE][0] :
+      null;
+
+  String get responseContentType() => _contentTypeOnly;
+
+  void set responseContentType(String value) {
+    if (value == null || value.isEmpty()) return;
+    res.headers.set(HttpHeaders.CONTENT_TYPE, value);
+    _contentTypeOnly = $(value).splitOnFirst(";")[0];
   }
 
-  set contentType(String value) =>
-      res.headers.set(HttpHeaders.CONTENT_TYPE, value);
-
-  void write(Object value){
-    switch(_format){
-      case "json":
-        res.outputStream.writeString(JSON.stringify(value));
-      break;
-      default:
-        if (value is List<int>)
-          res.outputStream.write(value);
-        else
-          res.outputStream.writeString(value.toString());
-        break;
-    }
-  }
-
-  void send(Object value, [String asFormat]){
-    if (asFormat != null)
-      format = asFormat;
-
-    write(value);
-    res.outputStream.close();
-  }
-
-  void end([int httpStatus, String statusReason]){
-    if (httpStatus != null) {
-      res.statusCode = HttpStatus.NOT_FOUND;
-    }
-    if (statusReason != null){
+  HttpContext head([int httpStatus, String statusReason, String contentType, Map<String,String> headers]){
+    if (httpStatus != null)
+      res.statusCode = httpStatus;
+    if (statusReason != null)
       res.reasonPhrase = statusReason;
+    responseContentType = contentType;
+    if (headers != null)
+      headers.forEach((name, value) => res.headers.set(name, value));
+    return this;
+  }
+
+  HttpContext write(Object value, [String contentType]){
+    responseContentType = contentType;
+    if (value != null){
+      switch(_contentTypeOnly){
+        case ContentTypes.JSON:
+          res.outputStream.writeString(JSON.stringify(value));
+        break;
+        default:
+          if (value is List<int> || ContentTypes.isBinary(_contentTypeOnly))
+            res.outputStream.write(value);
+          else
+            res.outputStream.writeString(value.toString());
+          break;
+      }
     }
+    return this;
+  }
+
+  HttpContext writeText(String text){
+    res.outputStream.writeString(text);
+    return this;
+  }
+
+  HttpContext writeBytes(List<int> bytes){
+    res.outputStream.write(bytes);
+    return this;
+  }
+
+  void send([Object value, String contentType, int httpStatus, String statusReason]){
+    head(httpStatus, statusReason, contentType);
+    if (value != null) write(value);
     res.outputStream.close();
   }
 
-  void notFound([String statusReason]) => end(HttpStatus.NOT_FOUND, statusReason);
+  void sendJson(Object value, [int httpStatus, String statusReason]) =>
+      send(value, ContentTypes.JSON, httpStatus, statusReason);
+
+  void sendHtml(Object value, [int httpStatus, String statusReason]) =>
+      send(value, ContentTypes.HTML, httpStatus, statusReason);
+
+  void sendText(Object value, [String contentType, int httpStatus, String statusReason]){
+    head(httpStatus, statusReason, contentType);
+    if (value != null) res.outputStream.writeString(value);
+    res.outputStream.close();
+  }
+
+  void sendBytes(List<int> bytes, [String contentType, int httpStatus, String statusReason]){
+    head(httpStatus, statusReason, contentType);
+    if (bytes != null) res.outputStream.write(bytes);
+    res.outputStream.close();
+  }
+
+  void notFound([String statusReason, Object value, String contentType]) =>
+      send(value, contentType, HttpStatus.NOT_FOUND, statusReason);
 }
 
-Map<String, String> contentTypes = const {
-  "txt" : "text/plain",
-  "css" : "text/css",
-  "htm" : "text/html; charset=UTF-8",
-  "html": "text/html; charset=UTF-8",
-  "dart": "application/dart",
-  "js"  : "application/javascript",
-  "json": "application/json",
-  "gif" : "image/gif",
-  "jpg" : "image/jpeg",
-  "jpeg": "image/jpeg",
-  "png" : "image/png",
-};
-List<String> binaryExts = const ["image/jpeg","image/gif","image/png"];
+class ContentTypes {
+  static String _default;
+  static void set defaultType(String contentType) { _default = contentType; }
+  static String get defaultType() => _default != null ? _default : HTML;
 
-String getContentType(File file) {
-  String ext = file.name.split('.').last();
-  return contentTypes[ext] != null ? contentTypes[ext] : null;
+  static final String TEXT = "text/plain";
+  static final String HTML = "text/html; charset=UTF-8";
+  static final String CSS = "text/css";
+  static final String JS = "application/javascript";
+  static final String JSON = "application/json";
+  static final String XML = "application/xml";
+  static final String FORM_URL_ENCODED = "x-www-form-urlencoded";
+  static final String MULTIPART_FORMDATA = "multipart/form-data";
+
+  static bool isJson(String contentType) => matches(contentType, JSON);
+  static bool isText(String contentType) => matches(contentType, TEXT);
+  static bool isXml(String contentType) => matches(contentType, XML);
+  static bool isFormUrlEncoded(String contentType) => matches(contentType, FORM_URL_ENCODED);
+  static bool isMultipartFormData(String contentType) => matches(contentType, MULTIPART_FORMDATA);
+
+  static Map<String, String> _typesMap;
+  static Map<String, String> get typesMap() {
+    if (_typesMap == null) {
+      _typesMap = {
+         "txt" : ContentTypes.TEXT,
+         "json": ContentTypes.JSON,
+         "htm" : ContentTypes.HTML,
+         "html": ContentTypes.HTML,
+         "css" : ContentTypes.CSS,
+         "js"  : ContentTypes.JS,
+         "dart": "application/dart",
+         "png" : "image/png",
+         "gif" : "image/gif",
+         "jpg" : "image/jpeg",
+         "jpeg": "image/jpeg",
+      };
+    }
+    return _typesMap;
+  }
+
+  static List<String> _binaryContentTypes;
+  static List<String> get binaryContentTypes() {
+    if (_binaryContentTypes == null){
+      _binaryContentTypes = ["image/jpeg","image/gif","image/png","application/octet"];
+    }
+    return _binaryContentTypes;
+  }
+
+  static String getContentType(File file) {
+    String ext = file.name.split('.').last();
+    return typesMap[ext];
+  }
+
+  static bool isBinary(String contentType) => binaryContentTypes.indexOf(contentType) >= 0;
+
+  static bool matches(String contentType, String withContentType){
+    if (contentType == null || withContentType == null) return false;
+    return contentType.length > withContentType.length
+        ? withContentType.startsWith(contentType)
+        : contentType.startsWith(withContentType);
+  }
 }
 
 class StaticFileHandler implements Module {
 
   void register(HttpServer server) =>
-      server.addRequestHandler((_) => true, execute);
+      server.addRequestHandler((_) => true, (req, res) => execute(new HttpContext(req, res)));
 
-  void execute(HttpRequest req, HttpResponse res){
-    String path = (req.path.endsWith('/')) ? ".${req.path}index.html" : ".${req.path}";
+  void execute(HttpContext ctx){
+    String path = (ctx.req.path.endsWith('/')) ? ".${ctx.req.path}index.html" : ".${ctx.req.path}";
     print("serving $path");
 
     File file = new File(path);
     file.exists().then((bool exists) {
       if (exists) {
-        String contentType = getContentType(file);
-        bool isBinary = binaryExts.indexOf(contentType) >= 0;
-        res.headers.set(HttpHeaders.CONTENT_TYPE, contentType);
-        if (isBinary){
-          file.readAsBytes().then((List<int> bytes) {
-            res.outputStream.write(bytes);
-            res.outputStream.close();
-          });
+        ctx.responseContentType = ContentTypes.getContentType(file);
+        if (ContentTypes.isBinary(ctx.responseContentType)){
+          file.readAsBytes().then(ctx.sendBytes);
         } else {
-          file.readAsText().then((String text) {
-            res.outputStream.writeString(text);
-            res.outputStream.close();
-          });
+          file.readAsText().then(ctx.sendText);
         }
       } else {
-        res.statusCode = HttpStatus.NOT_FOUND;
-        res.outputStream.close();
+        ctx.notFound("$path not found on this server");
       }
     });
   }
