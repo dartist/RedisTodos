@@ -4,3 +4,9 @@
 [submodule "vendor/DartRedisClient"]
 	path = vendor/DartRedisClient
 	url = git@github.com:mythz/DartRedisClient.git
+[submodule "vendor/Mixins"]
+	path = vendor/Mixins
+	url = git@github.com:mythz/DartMixins.git
+[submodule "vendor/Express"]
+	path = vendor/Express
+	url = git@github.com:mythz/DartExpress.git

@@ -1,7 +1,7 @@
 #import("dart:io");
 #import("dart:json");
-#import("Express.dart");
-#import("vendor/DartRedisClient/Mixin.dart");
+#import("vendor/Express/Express.dart");
+#import("vendor/Mixins/Mixin.dart");
 #import("vendor/DartRedisClient/RedisClient.dart");
 
 void main(){
