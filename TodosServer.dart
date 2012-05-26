@@ -10,48 +10,50 @@ void main(){
 
   Express app = new Express();
 
-  app.use(new StaticFileHandler());
+  app
+    .use(new StaticFileHandler())
 
-  app.get("/todos", (HttpContext ctx){
-    client.keys("todo:*").then((keys) =>
-      client.mget(keys).then(ctx.sendJson)
-    );
-  });
+    .get("/todos", (HttpContext ctx){
+      client.keys("todo:*").then((keys) =>
+        client.mget(keys).then(ctx.sendJson)
+      );
+    })
 
-  app.get("/todos/:id", (HttpContext ctx){
-    var id = ctx.param("id");
-    client.get("todo:$id}").then((todo) =>
-      todo != null ?
-        ctx.sendJson(todo) :
-        ctx.notFound("todo $id does not exist")
-    );
-  });
+    .get("/todos/:id", (HttpContext ctx){
+      var id = ctx.param("id");
+      client.get("todo:$id}").then((todo) =>
+        todo != null ?
+          ctx.sendJson(todo) :
+          ctx.notFound("todo $id does not exist")
+      );
+    })
 
-  app.post("/todos", (HttpContext ctx){
-    ctx.readAsJson().then((x){
-      client.incr("ids:todo").then((newId){
-        var todo = $(x).defaults({"content":null,"done":false,"order":0});
-        todo["id"] = newId;
-        client.set("todo:$newId", todo);
+    .post("/todos", (HttpContext ctx){
+      ctx.readAsJson().then((x){
+        client.incr("ids:todo").then((newId){
+          var todo = $(x).defaults({"content":null,"done":false,"order":0});
+          todo["id"] = newId;
+          client.set("todo:$newId", todo);
+          ctx.sendJson(todo);
+        });
+      });
+    })
+
+    .put("/todos/:id", (HttpContext ctx){
+      var id = ctx.param("id");
+      ctx.readAsJson().then((todo){
+        client.set("todo:$id", todo);
         ctx.sendJson(todo);
       });
-    });
-  });
+    })
 
-  app.put("/todos/:id", (HttpContext ctx){
-    var id = ctx.param("id");
-    ctx.readAsJson().then((todo){
-      client.set("todo:$id", todo);
-      ctx.sendJson(todo);
-    });
-  });
+    .delete("/todos/:id", (HttpContext ctx){
+      client.del("todo:${ctx.param('id')}");
+      ctx.send();
+    })
 
-  app.delete("/todos/:id", (HttpContext ctx){
-    client.del("todo:${ctx.param('id')}");
-    ctx.send();
-  });
-
+    .listen("0.0.0.0", 8000);
+  
   print("listening on 8000...");
-  app.listen("127.0.0.1", 8000);
 }
 
