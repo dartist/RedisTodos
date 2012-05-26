@@ -20,7 +20,7 @@ void main(){
     })
 
     .get("/todos/:id", (HttpContext ctx){
-      var id = ctx.param("id");
+      var id = ctx.params["id"];
       client.get("todo:$id}").then((todo) =>
         todo != null ?
           ctx.sendJson(todo) :
@@ -40,7 +40,7 @@ void main(){
     })
 
     .put("/todos/:id", (HttpContext ctx){
-      var id = ctx.param("id");
+      var id = ctx.params["id"];
       ctx.readAsJson().then((todo){
         client.set("todo:$id", todo);
         ctx.sendJson(todo);
@@ -48,7 +48,7 @@ void main(){
     })
 
     .delete("/todos/:id", (HttpContext ctx){
-      client.del("todo:${ctx.param('id')}");
+      client.del("todo:${ctx.params['id']}");
       ctx.send();
     })
 
